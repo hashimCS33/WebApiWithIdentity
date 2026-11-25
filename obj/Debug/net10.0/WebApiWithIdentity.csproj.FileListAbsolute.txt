@@ -167,3 +167,5 @@ C:\D_Backup\tests backend\webApiWithIdentity\webApiWithIdentity\obj\Debug\net10.
 C:\D_Backup\tests backend\webApiWithIdentity\webApiWithIdentity\obj\Debug\net10.0\WebApiWithIdentity.pdb
 C:\D_Backup\tests backend\webApiWithIdentity\webApiWithIdentity\obj\Debug\net10.0\WebApiWithIdentity.genruntimeconfig.cache
 C:\D_Backup\tests backend\webApiWithIdentity\webApiWithIdentity\obj\Debug\net10.0\ref\WebApiWithIdentity.dll
+C:\D_Backup\tests backend\webApiWithIdentity\WebApiWithIdentity\bin\Debug\net10.0\Otp.NET.dll
+C:\D_Backup\tests backend\webApiWithIdentity\WebApiWithIdentity\obj\Debug\net10.0\WebApiWithIdentity.sourcelink.json
