@@ -39,7 +39,7 @@ namespace WebApiWithIdentity.Controllers
             _signInManager = signInManager;
         }
           
-        [HttpPost("enable")]
+        [HttpPost("enable")]  
         public async Task<IActionResult> Enable2FA([FromBody] Enable2FARequest enable2FARequest)
         {
             if (enable2FARequest.UserId == null)
@@ -71,10 +71,12 @@ namespace WebApiWithIdentity.Controllers
             }
           var secret = RandomNumberGenerator.GetBytes(20);
           var base64Secret = Base64UrlEncoder.Encode(secret);
+          var base32Secret = Base32Encoding.ToString(secret);
 
 
-          var qrCodeUri = $"otpauth://totp/WebApiWithIdentity:{user.Email}?secret = {base64Secret} & issuer = WebApiWithIdentity";
+          var qrCodeUri = $"otpauth://totp/WebApiWithIdentity:{user.Email}?secret={base32Secret}&issuer=WebApiWithIdentity";
           user.TwoFactorSecret = base64Secret;
+
 
           await _userManager.UpdateAsync(user);
           _logger.LogInformation($"2FA secret genrated for user {user.Id}");
@@ -84,7 +86,8 @@ namespace WebApiWithIdentity.Controllers
               Success =true,
               Message = "Scan this QR  code with any authentictor application , then verify",
               QrCodeUri = qrCodeUri,
-              SecretKey =base64Secret
+              SecretKey =base32Secret
+
           });
 
         }
@@ -205,7 +208,7 @@ namespace WebApiWithIdentity.Controllers
                      _tempTokens.TryRemove(entry.Key, out _);
              }
 
-             var tempExpiry = now.AddMinutes(2);
+             var tempExpiry = now.AddMinutes(5);
              _tempTokens[tempToken] = (user.Id, tempExpiry);
 
              _logger.LogInformation("2FA login step 1 done seccussfully");
@@ -308,11 +311,11 @@ namespace WebApiWithIdentity.Controllers
 
 
         
+        [Authorize]
         [HttpGet("recovery-codes")]
         public async Task<IActionResult> GetRecoveryCodes()
         {
-            var userId =User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var user= await _userManager.FindByIdAsync(userId!);
+            var user = await _userManager.GetUserAsync(User);
 
             if(user == null)
             {
@@ -340,7 +343,7 @@ namespace WebApiWithIdentity.Controllers
         var recoveryCodes = await _userManager.GenerateNewTwoFactorRecoveryCodesAsync(user,6);
 
 
-        _logger.LogInformation($"Recovery codex regenrated for user {userId}",userId);
+        _logger.LogInformation("Recovery codes regenerated for user {UserId}", user.Id);
         
         return Ok(new
         {
@@ -354,54 +357,53 @@ namespace WebApiWithIdentity.Controllers
         [HttpPost("login/recovery-code")]
         public async Task<IActionResult> LoginWithRecoveryCode([FromBody] ConsumeRecoveryCodesRequest request)
         {
-            if(string.IsNullOrEmpty(request.Code))
-            {
-                return BadRequest(new ConsumeRecoveryCodesResponse
-                {
-                   Success =false,
-                   Message = "Recovery code is requireed,"
-                });
-            }
-
-            var userId =User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-            if(string.IsNullOrEmpty(userId))
+            if (string.IsNullOrWhiteSpace(request.Code) || string.IsNullOrWhiteSpace(request.TempToken))
             {
                 return BadRequest(new ConsumeRecoveryCodesResponse
                 {
                     Success = false,
-                    Message = "User must be identified."
+                    Message = "Recovery code and temp token are required"
                 });
-                
             }
-            var  user = await _userManager.FindByIdAsync(userId);
-            if (user == null )
+
+            if (!_tempTokens.TryRemove(request.TempToken, out var challenge) ||
+                challenge.ExpiresAt <= DateTime.UtcNow)
             {
-                return NotFound(new ConsumeRecoveryCodesResponse
+                return BadRequest(new ConsumeRecoveryCodesResponse
                 {
-                    Success =false,
-                    Message = "User not Found"
+                    Success = false,
+                    Message = "Invalid or expired temp token"
                 });
             }
 
-            // Consum the recovery code
-            var result = await _userManager.RedeemTwoFactorRecoveryCodeAsync(user,request.Code);
-
-            if(!result.Succeeded)
+            var user = await _userManager.FindByIdAsync(challenge.UserId);
+            if (user == null || !user.TwoFactorEnabled || await _userManager.IsLockedOutAsync(user))
             {
-               return BadRequest (new ConsumeRecoveryCodesResponse
-               {
-                   Success = false,
-                   Message = "Invalid or used recovery code"
-               });
+                return Unauthorized(new ConsumeRecoveryCodesResponse
+                {
+                    Success = false,
+                    Message = "Unable to sign in"
+                });
             }
 
-            _logger.LogInformation("User logged in with recovery code: {UserId}",userId);
+            var result = await _userManager.RedeemTwoFactorRecoveryCodeAsync(user, request.Code.Trim());
+
+            if (!result.Succeeded)
+            {
+                return BadRequest(new ConsumeRecoveryCodesResponse
+                {
+                    Success = false,
+                    Message = "Invalid or used recovery code"
+                });
+            }
+
+            await _signInManager.SignInWithClaimsAsync(user, false, [new Claim("amr", "mfa")]);
+            _logger.LogInformation("User logged in with recovery code: {UserId}", user.Id);
 
             return Ok(new ConsumeRecoveryCodesResponse
             {
-                Success =false,
-                Message ="inavlid or used recovery code"
+                Success = true,
+                Message = "Login successful with recovery code"
             });
         }
 
@@ -457,6 +459,8 @@ namespace WebApiWithIdentity.Controllers
                 Success = true,
                 Message = "2FA authrentication has been disabled"
             });
+
+            
         }
     
 }
